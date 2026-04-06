@@ -1,0 +1,149 @@
+{
+  "schema_id": "osm.workspace.v0.1",
+  "updated_at": "2026-01-09",
+  "repos": [
+    {
+      "key": "sacp_suite",
+      "name": "SACP Suite",
+      "role": "execution engine (API/UI/plugins) + measurement-kernel implementation",
+      "env": "SACP_SUITE_ROOT",
+      "default_path": "/Users/edward/SACP SUITE",
+      "git_remote": "https://github.com/EARTHTOEDWARD/SACP-Suite.git",
+      "adapter_type": "api",
+      "entrypoints": {
+        "chemistry_simulate": "/api/v1/chemistry/simulate",
+        "task_parse": "/api/parse-task"
+      },
+      "artifact_contracts": {
+        "produces": [
+          "sacp.artifact.v0.1",
+          "sacp.chemistry.adr.habitat_atlas.v1",
+          "sacp.chemistry.adr.ratchet_witness.v1",
+          "sacp.run.v0.1"
+        ],
+        "requires": []
+      }
+    },
+    {
+      "key": "osm",
+      "name": "Operating System for Measurements (OSM)",
+      "role": "contracts/specs + conformance tooling (keep lightweight)",
+      "env": "OSM_ROOT",
+      "default_path": "/Users/edward/Operating System for Measurements OSM",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {
+        "validate_runstore": "scripts/validate_runstore.py"
+      },
+      "artifact_contracts": {
+        "produces": [],
+        "requires": [
+          "sacp.artifact.v0.1",
+          "sacp.run.v0.1"
+        ]
+      }
+    },
+    {
+      "key": "stam_root",
+      "name": "Strange Attractor Mathematics (StAM)",
+      "role": "narrative/spec source (chapters, metadocs, volumes)",
+      "env": "STAM_ROOT",
+      "default_path": "/Users/edward/Desktop/Strange Attractor Mathematics",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {},
+      "artifact_contracts": {
+        "produces": [],
+        "requires": []
+      }
+    },
+    {
+      "key": "stam2",
+      "name": "StAM2 — Laws of Complexity",
+      "role": "volume (theory + measurement discipline)",
+      "env": "STAM2_ROOT",
+      "default_path": "/Users/edward/Desktop/Strange Attractor Mathematics/StAM-2-Laws-of-Complexity",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {},
+      "artifact_contracts": {
+        "produces": [],
+        "requires": []
+      }
+    },
+    {
+      "key": "stam3",
+      "name": "StAM3 — Volume 3",
+      "role": "volume (operator-first / measurement-native stack)",
+      "env": "STAM3_ROOT",
+      "default_path": "/Users/edward/Desktop/Strange Attractor Mathematics/StAM-3-Volume-3",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {},
+      "artifact_contracts": {
+        "produces": [],
+        "requires": []
+      }
+    },
+    {
+      "key": "stam4",
+      "name": "StAM4 — OSM",
+      "role": "volume (OSM framing/material)",
+      "env": "STAM4_ROOT",
+      "default_path": "/Users/edward/Desktop/Strange Attractor Mathematics/StAM-4-OSM",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {},
+      "artifact_contracts": {
+        "produces": [],
+        "requires": []
+      }
+    },
+    {
+      "key": "auic",
+      "name": "Autodidactic Universe Intelligence Creator (AUIC)",
+      "role": "autodidactic planning/episode runner and artifact-first benchmark loops",
+      "env": "AUIC_ROOT",
+      "default_path": "/Users/edward/Autodidactic Universe Intelligence Creator",
+      "git_remote": null,
+      "adapter_type": "python",
+      "entrypoints": {
+        "cli": "python -m auic.cli",
+        "runs_show": "python -m auic.cli runs show --run-id <run_id>"
+      },
+      "artifact_contracts": {
+        "produces": [
+          "sacp.run.v0.1",
+          "sacp.artifact.v0.1"
+        ],
+        "requires": [
+          "sacp.run.v0.1"
+        ]
+      }
+    },
+    {
+      "key": "maxwell_dynamics",
+      "name": "Maxwell Dynamics",
+      "role": "maxwell-native domain pack and certificate-producing dynamics",
+      "env": "MAXWELL_DYNAMICS_ROOT",
+      "default_path": "/Users/edward/Maxwell Dynamics",
+      "git_remote": null,
+      "adapter_type": "cli",
+      "entrypoints": {
+        "example6": "python scripts/run_example6_transport_pump_cycle.py",
+        "validate_osm_contract": "python scripts/validate_osm_contract.py"
+      },
+      "artifact_contracts": {
+        "produces": [
+          "run_manifest.json",
+          "atlas.json",
+          "boundaries.json",
+          "port_report.json"
+        ],
+        "requires": [
+          "sacp.run.v0.1"
+        ]
+      }
+    }
+  ]
+}
