@@ -130,7 +130,16 @@ def test_bridge_baseline_advance_uses_suite_candidates(client_and_service, monke
         assert suite_bridge["bridge_kind"] == "panel_run"
         return _panel_export(str(suite_bridge["run_id"]))
 
+    def _create_request(**kwargs) -> dict:
+        assert kwargs["panel_run_id"] == "suite_panel_01"
+        assert kwargs["selected_candidate_id"] == "cand_bridge_01"
+        return {
+            "run_id": "suite_request_01",
+            "request_ref": {"artifact_id": "sha256:" + "5" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
+        }
+
     monkeypatch.setattr(service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
+    monkeypatch.setattr(service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
 
     created = client.post("/v1/sessions", json={"prompt": "bioelectric simulation intervention loop"}).json()
     session_id = created["session_id"]
@@ -155,6 +164,10 @@ def test_bridge_baseline_advance_uses_suite_candidates(client_and_service, monke
     assert candidate_artifact.data["suite_context"]["bridge_kind"] == "panel_run"
     assert candidate_artifact.data["candidates"][0]["candidate_id"] == "cand_bridge_01"
     assert candidate_artifact.data["candidates"][0]["suite_candidate_ref"]["panel_run_id"] == "suite_panel_01"
+    execution_artifact_id = service.sessions[session_id].stage_outputs["EXECUTE_SIM"]
+    execution_artifact = service.runstore.load_artifact(run_id, execution_artifact_id)
+    assert execution_artifact.data["suite_execution_request"]["request_run_id"] == "suite_request_01"
+    assert execution_artifact.data["suite_execution_request"]["request_ref"]["artifact_id"].startswith("sha256:")
 
 
 def test_bridge_verification_followup_completes_with_suite_lineage(client_and_service, monkeypatch):
@@ -165,7 +178,14 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
             return _panel_export(str(suite_bridge["run_id"]))
         return _verification_export(str(suite_bridge["run_id"]), baseline_run_id="suite_panel_01")
 
+    def _create_request(**kwargs) -> dict:
+        return {
+            "run_id": "suite_request_02",
+            "request_ref": {"artifact_id": "sha256:" + "6" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
+        }
+
     monkeypatch.setattr(_service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
+    monkeypatch.setattr(_service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
 
     created = client.post("/v1/sessions", json={"prompt": "bioelectric simulation intervention loop"}).json()
     session_id = created["session_id"]
@@ -200,11 +220,13 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
     assert body["delta_report"]["knocked_out_of_saddle"] is True
     assert body["suite_lineage"]["baseline"]["bridge_contract_version"] == SUITE_HUB_BRIDGE_CONTRACT_VERSION
     assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
+    assert body["suite_lineage"]["execution"]["request_run_id"] == "suite_request_02"
     assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_01"
 
     report_view = client.get(f"/v1/sessions/{session_id}/report/view")
     assert report_view.status_code == 200
     assert "Suite Lineage" in report_view.text
+    assert "suite_request_02" in report_view.text
 
 
 def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_and_service, monkeypatch):
@@ -219,9 +241,17 @@ def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_
         assert kwargs["panel_run_id"] == "suite_panel_01"
         assert kwargs["selected_candidate_id"] == "cand_bridge_01"
         assert len(kwargs["followup_points"]) == 24
+        assert kwargs["followup_metadata"]["request_run_id"] == "suite_request_03"
         return {"run_id": "suite_verification_auto_01"}
 
+    def _create_request(**kwargs) -> dict:
+        return {
+            "run_id": "suite_request_03",
+            "request_ref": {"artifact_id": "sha256:" + "7" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
+        }
+
     monkeypatch.setattr(service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
+    monkeypatch.setattr(service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
     monkeypatch.setattr(
         service.sacp_adapter,
         "create_suite_verification_from_panel_run",
@@ -254,6 +284,7 @@ def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_
     assert report.status_code == 200
     body = report.json()
     assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
+    assert body["suite_lineage"]["execution"]["request_run_id"] == "suite_request_03"
     assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_auto_01"
     assert body["intervention"]["selected_candidate_id"] == "cand_bridge_01"
     assert body["delta_report"]["knocked_out_of_saddle"] is True
