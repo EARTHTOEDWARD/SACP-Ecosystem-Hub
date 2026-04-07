@@ -385,6 +385,7 @@ class HubService:
                     "bridge_kind": snapshot.get("bridge_kind"),
                     "bridge_contract_version": snapshot.get("bridge_contract_version"),
                     "suite_run_id": snapshot.get("suite_run_id"),
+                    "suite_base_url": snapshot.get("suite_base_url"),
                     "export_hash": snapshot.get("export_hash"),
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
                     "regime_summary": dict(snapshot.get("regime_summary", {})),
@@ -430,6 +431,7 @@ class HubService:
                     "bridge_kind": snapshot.get("bridge_kind"),
                     "bridge_contract_version": snapshot.get("bridge_contract_version"),
                     "suite_run_id": snapshot.get("suite_run_id"),
+                    "suite_base_url": snapshot.get("suite_base_url"),
                     "export_hash": snapshot.get("export_hash"),
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
                 },
@@ -460,6 +462,29 @@ class HubService:
         if suite_context and candidates:
             selected = max(candidates, key=lambda row: float(row.get("predicted_shift_score", 0.0)))
             effect_scale = float(selected.get("predicted_shift_score", 0.0))
+            suite_execution_request: Dict[str, Any] = {}
+            panel_run_id = str(selected.get("suite_candidate_ref", {}).get("panel_run_id") or suite_context.get("suite_run_id") or "").strip()
+            if panel_run_id:
+                try:
+                    created = self.sacp_adapter.create_suite_intervention_request_from_panel_run(
+                        panel_run_id=panel_run_id,
+                        selected_candidate_id=str(selected.get("candidate_id") or "").strip() or None,
+                        request_metadata={
+                            "source": "sacp_hub_execute_sim",
+                            "session_id": session.session_id,
+                            "hub_run_id": session.run_id,
+                        },
+                        suite_base_url=str(suite_context.get("suite_base_url") or "").strip() or None,
+                    )
+                    suite_execution_request = {
+                        "request_run_id": str(created.get("run_id")),
+                        "request_ref": dict(created.get("request_ref") or {}),
+                        "selected_candidate_id": str(selected.get("candidate_id")),
+                    }
+                except ValueError as exc:
+                    raise StageFailure(stage="EXECUTE_SIM", kind="contract", message=str(exc)) from exc
+                except Exception as exc:  # noqa: BLE001
+                    raise StageFailure(stage="EXECUTE_SIM", kind="infra", message=f"Suite intervention request failed: {exc}") from exc
             return {
                 "action": "execute_intervention",
                 "session_id": session.session_id,
@@ -470,6 +495,7 @@ class HubService:
                     "energy_gradient_reduction": round(effect_scale * 0.3, 6),
                 },
                 "suite_candidate_ref": dict(selected.get("suite_candidate_ref", {})),
+                "suite_execution_request": suite_execution_request,
                 "suite_context": suite_context,
             }
         prepared = self.sacp_adapter.prepare(
@@ -580,6 +606,8 @@ class HubService:
                 "suite_lineage": dict(baseline_snapshot.get("suite_lineage", {})),
                 "export_hash": baseline_snapshot.get("export_hash"),
             }
+        if execution_payload.get("suite_execution_request"):
+            suite_lineage["execution"] = dict(execution_payload.get("suite_execution_request", {}))
         if followup_snapshot is not None:
             suite_lineage["followup"] = {
                 "suite_run_id": followup_snapshot.get("suite_run_id"),
@@ -702,6 +730,7 @@ class HubService:
 
         execution_artifact_id = session.stage_outputs.get("EXECUTE_SIM")
         selected_candidate_id = None
+        execution_request_metadata: Dict[str, Any] = {}
         if execution_artifact_id:
             execution_payload = self._load_hub_payload(
                 session,
@@ -710,6 +739,7 @@ class HubService:
                 stage="FOLLOWUP_INGEST",
             )
             selected_candidate_id = str(execution_payload.get("selected_candidate_id") or "").strip() or None
+            execution_request_metadata = dict(execution_payload.get("suite_execution_request", {}))
 
         try:
             created = self.sacp_adapter.create_suite_verification_from_panel_run(
@@ -717,7 +747,7 @@ class HubService:
                 followup_points=followup_points,
                 selected_candidate_id=selected_candidate_id,
                 followup_source_kind="hub_followup",
-                followup_metadata=followup_metadata,
+                followup_metadata={**dict(followup_metadata), **execution_request_metadata},
                 suite_base_url=str(baseline_snapshot.get("suite_base_url", "")).strip() or None,
             )
         except ValueError as exc:

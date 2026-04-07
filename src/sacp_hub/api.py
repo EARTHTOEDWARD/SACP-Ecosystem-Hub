@@ -68,6 +68,7 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
     artifacts = lineage.get("artifact_ids", [])
     summary = report.get("summary", "No summary available")
     conformance = report.get("conformance", {})
+    suite_execution_request = intervention.get("suite_execution_request", {}) or {}
     raw_json = escape(json.dumps(report, indent=2, sort_keys=True))
 
     artifact_lines = "".join(f"<li><code>{escape(str(artifact_id))}</code></li>" for artifact_id in artifacts)
@@ -222,6 +223,8 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
           <div>Reason: {escape(str(intervention.get("selection_reason", "")))}</div>
           <div>Predicted energy gradient reduction: {_format_metric(intervention.get("predicted_effect", {}).get("energy_gradient_reduction"))}</div>
           <div>Predicted instability reduction: {_format_metric(intervention.get("predicted_effect", {}).get("instability_reduction"))}</div>
+          <div>Suite execution request run: <code>{escape(str(suite_execution_request.get("request_run_id", "")))}</code></div>
+          <div>Suite execution request artifact: <code>{escape(str((suite_execution_request.get("request_ref") or {}).get("artifact_id", "")))}</code></div>
           <div>Knocked out of saddle: <strong>{escape(str(delta_report.get("knocked_out_of_saddle", "")))}</strong></div>
         </div>
       </div>
