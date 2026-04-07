@@ -59,6 +59,7 @@ class SACPBridgeSnapshotArtifact(BaseModel):
     stream_kind: Literal["baseline", "followup"]
     provider: Literal["sacp_suite"] = "sacp_suite"
     bridge_kind: Literal["panel_run", "verification_run"]
+    bridge_contract_version: str
     suite_run_id: str
     suite_base_url: str
     source_url: str

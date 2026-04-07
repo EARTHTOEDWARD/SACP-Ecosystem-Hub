@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import requests
+from pydantic import ValidationError
 
 from sacp_hub.adapters.base import (
     Adapter,
@@ -13,6 +14,7 @@ from sacp_hub.adapters.base import (
     ValidationReport,
 )
 from sacp_hub.config import default_sacp_api_base
+from sacp_hub.suite_bridge_contract import SuitePanelRunExportV1, SuiteVerificationRunExportV1
 
 
 @dataclass
@@ -251,4 +253,10 @@ class SACPAPIAdapter(Adapter):
             raise ValueError(f"Unsupported suite bridge kind: {bridge_kind}")
         resp = requests.get(url, timeout=self.timeout_seconds)
         resp.raise_for_status()
-        return resp.json()
+        body = resp.json()
+        try:
+            if bridge_kind == "panel_run":
+                return SuitePanelRunExportV1.model_validate(body).model_dump(mode="python")
+            return SuiteVerificationRunExportV1.model_validate(body).model_dump(mode="python")
+        except ValidationError as exc:
+            raise ValueError(f"Invalid Suite bridge export contract: {exc}") from exc

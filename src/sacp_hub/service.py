@@ -365,6 +365,7 @@ class HubService:
                 "suite_context": {
                     "provider": snapshot.get("provider"),
                     "bridge_kind": snapshot.get("bridge_kind"),
+                    "bridge_contract_version": snapshot.get("bridge_contract_version"),
                     "suite_run_id": snapshot.get("suite_run_id"),
                     "export_hash": snapshot.get("export_hash"),
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
@@ -409,6 +410,7 @@ class HubService:
                 "suite_context": {
                     "provider": snapshot.get("provider"),
                     "bridge_kind": snapshot.get("bridge_kind"),
+                    "bridge_contract_version": snapshot.get("bridge_contract_version"),
                     "suite_run_id": snapshot.get("suite_run_id"),
                     "export_hash": snapshot.get("export_hash"),
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
@@ -489,6 +491,7 @@ class HubService:
                 {
                     "provider": snapshot.get("provider"),
                     "bridge_kind": snapshot.get("bridge_kind"),
+                    "bridge_contract_version": snapshot.get("bridge_contract_version"),
                     "suite_run_id": snapshot.get("suite_run_id"),
                     "export_hash": snapshot.get("export_hash"),
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
@@ -555,6 +558,7 @@ class HubService:
             suite_lineage["baseline"] = {
                 "suite_run_id": baseline_snapshot.get("suite_run_id"),
                 "bridge_kind": baseline_snapshot.get("bridge_kind"),
+                "bridge_contract_version": baseline_snapshot.get("bridge_contract_version"),
                 "suite_lineage": dict(baseline_snapshot.get("suite_lineage", {})),
                 "export_hash": baseline_snapshot.get("export_hash"),
             }
@@ -562,6 +566,7 @@ class HubService:
             suite_lineage["followup"] = {
                 "suite_run_id": followup_snapshot.get("suite_run_id"),
                 "bridge_kind": followup_snapshot.get("bridge_kind"),
+                "bridge_contract_version": followup_snapshot.get("bridge_contract_version"),
                 "suite_lineage": dict(followup_snapshot.get("suite_lineage", {})),
                 "export_hash": followup_snapshot.get("export_hash"),
             }
@@ -687,6 +692,7 @@ class HubService:
                 "stream_kind": stream_kind,
                 "provider": "sacp_suite",
                 "bridge_kind": bridge_kind,
+                "bridge_contract_version": str(export.get("bridge_contract_version", "")),
                 "suite_run_id": suite_run_id,
                 "suite_base_url": suite_base_url,
                 "source_url": source_url,
@@ -710,6 +716,7 @@ class HubService:
                 "stream_kind": stream_kind,
                 "provider": "sacp_suite",
                 "bridge_kind": bridge_kind,
+                "bridge_contract_version": str(export.get("bridge_contract_version", "")),
                 "suite_run_id": suite_run_id,
                 "suite_base_url": suite_base_url,
                 "source_url": source_url,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sacp_hub.suite_bridge_contract import SUITE_HUB_BRIDGE_CONTRACT_VERSION
+
 
 def _points(offset: float, n: int = 24):
     return [{"t": float(i), "values": [offset + 0.02 * i, offset + 0.01 * i, offset + 0.03 * i]} for i in range(n)]
@@ -27,6 +29,7 @@ def _panel_export(run_id: str) -> dict:
     return {
         "provider": "sacp_suite",
         "bridge_kind": "panel_run",
+        "bridge_contract_version": SUITE_HUB_BRIDGE_CONTRACT_VERSION,
         "run_id": run_id,
         "export_hash": "sha256:" + "1" * 64,
         "suite_lineage": {
@@ -72,6 +75,7 @@ def _verification_export(run_id: str, baseline_run_id: str) -> dict:
     return {
         "provider": "sacp_suite",
         "bridge_kind": "verification_run",
+        "bridge_contract_version": SUITE_HUB_BRIDGE_CONTRACT_VERSION,
         "run_id": run_id,
         "export_hash": "sha256:" + "3" * 64,
         "suite_lineage": {
@@ -194,6 +198,7 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
     assert body["conformance"]["status"] == "passed"
     assert body["intervention"]["selected_candidate_id"] == "cand_bridge_01"
     assert body["delta_report"]["knocked_out_of_saddle"] is True
+    assert body["suite_lineage"]["baseline"]["bridge_contract_version"] == SUITE_HUB_BRIDGE_CONTRACT_VERSION
     assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
     assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_01"
 
