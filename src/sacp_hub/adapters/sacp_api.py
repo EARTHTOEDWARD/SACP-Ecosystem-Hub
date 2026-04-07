@@ -30,6 +30,7 @@ class SACPAPIAdapter(Adapter):
                 "chemistry_simulate": f"{self.base_url}/api/v1/chemistry/simulate",
                 "bcp_panel_export": f"{self.base_url}/api/v1/bcp/hub-exports/panel-runs/{{run_id}}",
                 "bcp_verification_export": f"{self.base_url}/api/v1/bcp/hub-exports/verification-runs/{{run_id}}",
+                "bcp_verification_from_panel_run": f"{self.base_url}/api/v1/bcp/verification-runs/from-panel-run",
             },
             produced_artifact_types=[
                 "hub.bioelectric.baseline_analysis.v1",
@@ -260,3 +261,37 @@ class SACPAPIAdapter(Adapter):
             return SuiteVerificationRunExportV1.model_validate(body).model_dump(mode="python")
         except ValidationError as exc:
             raise ValueError(f"Invalid Suite bridge export contract: {exc}") from exc
+
+    def create_suite_verification_from_panel_run(
+        self,
+        *,
+        panel_run_id: str,
+        followup_points: List[Dict[str, Any]],
+        selected_candidate_id: str | None = None,
+        followup_source_kind: str = "hub_followup",
+        followup_metadata: Dict[str, Any] | None = None,
+        suite_base_url: str | None = None,
+    ) -> Dict[str, Any]:
+        run_id = str(panel_run_id).strip()
+        if not run_id:
+            raise ValueError("panel_run_id is required")
+        if len(followup_points) < 2:
+            raise ValueError("followup_points must contain at least 2 samples")
+        raw_base = str(suite_base_url or self.base_url).strip().rstrip("/")
+        base_url = raw_base or self.base_url.rstrip("/")
+        url = f"{base_url}/api/v1/bcp/verification-runs/from-panel-run"
+        payload: Dict[str, Any] = {
+            "panel_run_id": run_id,
+            "followup_points": list(followup_points),
+            "followup_source_kind": str(followup_source_kind or "hub_followup"),
+            "followup_metadata": dict(followup_metadata or {}),
+        }
+        if selected_candidate_id:
+            payload["selected_candidate_id"] = str(selected_candidate_id)
+        resp = requests.post(url, json=payload, timeout=self.timeout_seconds)
+        resp.raise_for_status()
+        body = resp.json()
+        created_run_id = str(body.get("run_id", "")).strip()
+        if not created_run_id:
+            raise ValueError("Suite verification creation response is missing run_id")
+        return body

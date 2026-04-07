@@ -205,3 +205,55 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
     report_view = client.get(f"/v1/sessions/{session_id}/report/view")
     assert report_view.status_code == 200
     assert "Suite Lineage" in report_view.text
+
+
+def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_and_service, monkeypatch):
+    client, service = client_and_service
+
+    def _fetch_bridge_export(suite_bridge: dict) -> dict:
+        if suite_bridge["bridge_kind"] == "panel_run":
+            return _panel_export(str(suite_bridge["run_id"]))
+        return _verification_export(str(suite_bridge["run_id"]), baseline_run_id="suite_panel_01")
+
+    def _create_suite_verification_from_panel_run(**kwargs) -> dict:
+        assert kwargs["panel_run_id"] == "suite_panel_01"
+        assert kwargs["selected_candidate_id"] == "cand_bridge_01"
+        assert len(kwargs["followup_points"]) == 24
+        return {"run_id": "suite_verification_auto_01"}
+
+    monkeypatch.setattr(service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
+    monkeypatch.setattr(
+        service.sacp_adapter,
+        "create_suite_verification_from_panel_run",
+        _create_suite_verification_from_panel_run,
+    )
+
+    created = client.post("/v1/sessions", json={"prompt": "bioelectric simulation intervention loop"}).json()
+    session_id = created["session_id"]
+
+    client.post(
+        f"/v1/sessions/{session_id}/ingest",
+        json={
+            "stream_kind": "baseline",
+            "suite_bridge": {"provider": "sacp_suite", "bridge_kind": "panel_run", "run_id": "suite_panel_01"},
+            "metadata": {"source": "bridge"},
+        },
+    )
+    advance_resp = client.post(f"/v1/sessions/{session_id}/advance")
+    assert advance_resp.status_code == 200
+    assert advance_resp.json()["state"] == "awaiting_followup"
+
+    follow_resp = client.post(
+        f"/v1/sessions/{session_id}/followup",
+        json={"points": _points(-0.1), "metadata": {"source": "synthetic_followup"}},
+    )
+    assert follow_resp.status_code == 200
+    assert follow_resp.json()["state"] == "completed"
+
+    report = client.get(f"/v1/sessions/{session_id}/report")
+    assert report.status_code == 200
+    body = report.json()
+    assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
+    assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_auto_01"
+    assert body["intervention"]["selected_candidate_id"] == "cand_bridge_01"
+    assert body["delta_report"]["knocked_out_of_saddle"] is True

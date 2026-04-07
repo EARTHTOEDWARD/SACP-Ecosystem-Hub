@@ -254,6 +254,24 @@ class HubService:
                     metadata=request.metadata,
                 ),
             )
+            if request.suite_bridge is None and request.points:
+                try:
+                    self._maybe_create_suite_followup_bridge(
+                        session=session,
+                        followup_points=[point.model_dump(mode="python") for point in request.points],
+                        followup_metadata=dict(request.metadata),
+                    )
+                except StageFailure as exc:
+                    self._record_error(session, exc.stage, exc.kind, exc.message)
+                    session.state = "failed"
+                    self._write_session_state(session, last_stage=exc.stage)
+                    self._commit_manifest(session)
+                    return AdvanceResponse(
+                        session_id=session.session_id,
+                        state=session.state,
+                        produced_artifact_ids=[],
+                        stage_history=list(session.stage_history),
+                    )
 
         if not session.followup_window_ids:
             return AdvanceResponse(
@@ -666,6 +684,57 @@ class HubService:
             "mean_signal": float(sum(means) / len(means)),
             "energy_gradient_proxy": float(gradient_sum),
         }
+
+    def _maybe_create_suite_followup_bridge(
+        self,
+        *,
+        session: SessionRecord,
+        followup_points: List[Dict[str, Any]],
+        followup_metadata: Dict[str, Any],
+    ) -> None:
+        baseline_snapshot = self._load_suite_bridge_snapshot(session, "baseline")
+        if baseline_snapshot is None:
+            return
+        if str(baseline_snapshot.get("bridge_kind", "")) != "panel_run":
+            return
+        if self._load_suite_bridge_snapshot(session, "followup") is not None:
+            return
+
+        execution_artifact_id = session.stage_outputs.get("EXECUTE_SIM")
+        selected_candidate_id = None
+        if execution_artifact_id:
+            execution_payload = self._load_hub_payload(
+                session,
+                execution_artifact_id,
+                expected_type="hub.intervention_execution.v1",
+                stage="FOLLOWUP_INGEST",
+            )
+            selected_candidate_id = str(execution_payload.get("selected_candidate_id") or "").strip() or None
+
+        try:
+            created = self.sacp_adapter.create_suite_verification_from_panel_run(
+                panel_run_id=str(baseline_snapshot.get("suite_run_id", "")).strip(),
+                followup_points=followup_points,
+                selected_candidate_id=selected_candidate_id,
+                followup_source_kind="hub_followup",
+                followup_metadata=followup_metadata,
+                suite_base_url=str(baseline_snapshot.get("suite_base_url", "")).strip() or None,
+            )
+        except ValueError as exc:
+            raise StageFailure(stage="FOLLOWUP_INGEST", kind="contract", message=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise StageFailure(stage="FOLLOWUP_INGEST", kind="infra", message=f"Suite verification creation failed: {exc}") from exc
+        self._write_suite_bridge_snapshot(
+            session=session,
+            stage="FOLLOWUP_INGEST",
+            stream_kind="followup",
+            suite_bridge={
+                "provider": "sacp_suite",
+                "bridge_kind": "verification_run",
+                "run_id": str(created["run_id"]),
+                "suite_base_url": str(baseline_snapshot.get("suite_base_url", "")).strip() or None,
+            },
+        )
 
     def _write_suite_bridge_snapshot(
         self,
