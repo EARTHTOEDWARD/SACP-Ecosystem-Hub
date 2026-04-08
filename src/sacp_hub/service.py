@@ -463,6 +463,8 @@ class HubService:
             selected = max(candidates, key=lambda row: float(row.get("predicted_shift_score", 0.0)))
             effect_scale = float(selected.get("predicted_shift_score", 0.0))
             suite_execution_request: Dict[str, Any] = {}
+            suite_execution_run: Dict[str, Any] = {}
+            observed_effect: Dict[str, Any] = {}
             panel_run_id = str(selected.get("suite_candidate_ref", {}).get("panel_run_id") or suite_context.get("suite_run_id") or "").strip()
             if panel_run_id:
                 try:
@@ -481,10 +483,20 @@ class HubService:
                         "request_ref": dict(created.get("request_ref") or {}),
                         "selected_candidate_id": str(selected.get("candidate_id")),
                     }
+                    executed = self.sacp_adapter.create_suite_execution_from_intervention_request(
+                        request_run_id=str(created.get("run_id")),
+                        suite_base_url=str(suite_context.get("suite_base_url") or "").strip() or None,
+                    )
+                    suite_execution_run = {
+                        "execution_run_id": str(executed.get("run_id")),
+                        "execution_ref": dict(executed.get("execution_ref") or {}),
+                        "executed_panel_run": dict(executed.get("executed_panel_run") or {}),
+                    }
+                    observed_effect = dict((executed.get("execution") or {}).get("observed_effect") or {})
                 except ValueError as exc:
                     raise StageFailure(stage="EXECUTE_SIM", kind="contract", message=str(exc)) from exc
                 except Exception as exc:  # noqa: BLE001
-                    raise StageFailure(stage="EXECUTE_SIM", kind="infra", message=f"Suite intervention request failed: {exc}") from exc
+                    raise StageFailure(stage="EXECUTE_SIM", kind="infra", message=f"Suite intervention execution failed: {exc}") from exc
             return {
                 "action": "execute_intervention",
                 "session_id": session.session_id,
@@ -496,6 +508,8 @@ class HubService:
                 },
                 "suite_candidate_ref": dict(selected.get("suite_candidate_ref", {})),
                 "suite_execution_request": suite_execution_request,
+                "suite_execution_run": suite_execution_run,
+                "observed_effect": observed_effect,
                 "suite_context": suite_context,
             }
         prepared = self.sacp_adapter.prepare(
@@ -608,6 +622,8 @@ class HubService:
             }
         if execution_payload.get("suite_execution_request"):
             suite_lineage["execution"] = dict(execution_payload.get("suite_execution_request", {}))
+        if execution_payload.get("suite_execution_run"):
+            suite_lineage.setdefault("execution", {}).update(dict(execution_payload.get("suite_execution_run", {})))
         if followup_snapshot is not None:
             suite_lineage["followup"] = {
                 "suite_run_id": followup_snapshot.get("suite_run_id"),
@@ -740,6 +756,7 @@ class HubService:
             )
             selected_candidate_id = str(execution_payload.get("selected_candidate_id") or "").strip() or None
             execution_request_metadata = dict(execution_payload.get("suite_execution_request", {}))
+            execution_request_metadata.update(dict(execution_payload.get("suite_execution_run", {})))
 
         try:
             created = self.sacp_adapter.create_suite_verification_from_panel_run(

@@ -138,8 +138,24 @@ def test_bridge_baseline_advance_uses_suite_candidates(client_and_service, monke
             "request_ref": {"artifact_id": "sha256:" + "5" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
         }
 
+    def _execute_request(**kwargs) -> dict:
+        assert kwargs["request_run_id"] == "suite_request_01"
+        return {
+            "run_id": "suite_execution_01",
+            "execution_ref": {
+                "artifact_id": "sha256:" + "8" * 64,
+                "artifact_type": "sacp.bcp.intervention_execution.v1",
+            },
+            "executed_panel_run": {
+                "run_id": "suite_panel_exec_01",
+                "summary_ref": {"artifact_id": "sha256:" + "9" * 64, "artifact_type": "sacp.bcp.panel_run.v1"},
+            },
+            "execution": {"observed_effect": {"executed_regime": "recovering"}},
+        }
+
     monkeypatch.setattr(service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
     monkeypatch.setattr(service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
+    monkeypatch.setattr(service.sacp_adapter, "create_suite_execution_from_intervention_request", _execute_request)
 
     created = client.post("/v1/sessions", json={"prompt": "bioelectric simulation intervention loop"}).json()
     session_id = created["session_id"]
@@ -168,6 +184,8 @@ def test_bridge_baseline_advance_uses_suite_candidates(client_and_service, monke
     execution_artifact = service.runstore.load_artifact(run_id, execution_artifact_id)
     assert execution_artifact.data["suite_execution_request"]["request_run_id"] == "suite_request_01"
     assert execution_artifact.data["suite_execution_request"]["request_ref"]["artifact_id"].startswith("sha256:")
+    assert execution_artifact.data["suite_execution_run"]["execution_run_id"] == "suite_execution_01"
+    assert execution_artifact.data["observed_effect"]["executed_regime"] == "recovering"
 
 
 def test_bridge_verification_followup_completes_with_suite_lineage(client_and_service, monkeypatch):
@@ -184,8 +202,23 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
             "request_ref": {"artifact_id": "sha256:" + "6" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
         }
 
+    def _execute_request(**kwargs) -> dict:
+        return {
+            "run_id": "suite_execution_02",
+            "execution_ref": {
+                "artifact_id": "sha256:" + "a" * 64,
+                "artifact_type": "sacp.bcp.intervention_execution.v1",
+            },
+            "executed_panel_run": {
+                "run_id": "suite_panel_exec_02",
+                "summary_ref": {"artifact_id": "sha256:" + "b" * 64, "artifact_type": "sacp.bcp.panel_run.v1"},
+            },
+            "execution": {"observed_effect": {"executed_regime": "recovering"}},
+        }
+
     monkeypatch.setattr(_service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
     monkeypatch.setattr(_service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
+    monkeypatch.setattr(_service.sacp_adapter, "create_suite_execution_from_intervention_request", _execute_request)
 
     created = client.post("/v1/sessions", json={"prompt": "bioelectric simulation intervention loop"}).json()
     session_id = created["session_id"]
@@ -221,12 +254,14 @@ def test_bridge_verification_followup_completes_with_suite_lineage(client_and_se
     assert body["suite_lineage"]["baseline"]["bridge_contract_version"] == SUITE_HUB_BRIDGE_CONTRACT_VERSION
     assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
     assert body["suite_lineage"]["execution"]["request_run_id"] == "suite_request_02"
+    assert body["suite_lineage"]["execution"]["execution_run_id"] == "suite_execution_02"
     assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_01"
 
     report_view = client.get(f"/v1/sessions/{session_id}/report/view")
     assert report_view.status_code == 200
     assert "Suite Lineage" in report_view.text
     assert "suite_request_02" in report_view.text
+    assert "suite_execution_02" in report_view.text
 
 
 def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_and_service, monkeypatch):
@@ -250,8 +285,23 @@ def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_
             "request_ref": {"artifact_id": "sha256:" + "7" * 64, "artifact_type": "sacp.bcp.intervention_request.v1"},
         }
 
+    def _execute_request(**kwargs) -> dict:
+        return {
+            "run_id": "suite_execution_03",
+            "execution_ref": {
+                "artifact_id": "sha256:" + "c" * 64,
+                "artifact_type": "sacp.bcp.intervention_execution.v1",
+            },
+            "executed_panel_run": {
+                "run_id": "suite_panel_exec_03",
+                "summary_ref": {"artifact_id": "sha256:" + "d" * 64, "artifact_type": "sacp.bcp.panel_run.v1"},
+            },
+            "execution": {"observed_effect": {"executed_regime": "recovering"}},
+        }
+
     monkeypatch.setattr(service.sacp_adapter, "fetch_suite_bridge_export", _fetch_bridge_export)
     monkeypatch.setattr(service.sacp_adapter, "create_suite_intervention_request_from_panel_run", _create_request)
+    monkeypatch.setattr(service.sacp_adapter, "create_suite_execution_from_intervention_request", _execute_request)
     monkeypatch.setattr(
         service.sacp_adapter,
         "create_suite_verification_from_panel_run",
@@ -285,6 +335,7 @@ def test_bridge_panel_followup_points_auto_create_suite_verification_run(client_
     body = report.json()
     assert body["suite_lineage"]["baseline"]["suite_run_id"] == "suite_panel_01"
     assert body["suite_lineage"]["execution"]["request_run_id"] == "suite_request_03"
+    assert body["suite_lineage"]["execution"]["execution_run_id"] == "suite_execution_03"
     assert body["suite_lineage"]["followup"]["suite_run_id"] == "suite_verification_auto_01"
     assert body["intervention"]["selected_candidate_id"] == "cand_bridge_01"
     assert body["delta_report"]["knocked_out_of_saddle"] is True

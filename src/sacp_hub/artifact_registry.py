@@ -109,6 +109,8 @@ class InterventionExecutionArtifact(BaseModel):
     predicted_effect: Dict[str, float]
     suite_candidate_ref: Dict[str, Any] = Field(default_factory=dict)
     suite_execution_request: Dict[str, Any] = Field(default_factory=dict)
+    suite_execution_run: Dict[str, Any] = Field(default_factory=dict)
+    observed_effect: Dict[str, Any] = Field(default_factory=dict)
     suite_context: Dict[str, Any] = Field(default_factory=dict)
 
 
