@@ -30,6 +30,7 @@ class RoutePlanArtifact(BaseModel):
     session_type: Literal["bioelectric_intervention_loop"] = "bioelectric_intervention_loop"
     steps: List[RouteStep]
     version: str = "v1"
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionStateArtifact(BaseModel):
