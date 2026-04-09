@@ -811,11 +811,19 @@ class HubService:
         execution_payload = {}
         delta_payload = {}
         suite_lineage: Dict[str, Any] = {}
+        baseline_payload: Dict[str, Any] = {}
         if "EXECUTE_SIM" in session.stage_outputs:
             execution_payload = self._load_hub_payload(
                 session,
                 session.stage_outputs["EXECUTE_SIM"],
                 expected_type="hub.intervention_execution.v1",
+                stage="BRIEF",
+            )
+        if "BASELINE_ANALYZE" in session.stage_outputs:
+            baseline_payload = self._load_hub_payload(
+                session,
+                session.stage_outputs["BASELINE_ANALYZE"],
+                expected_type="hub.bioelectric.baseline_analysis.v1",
                 stage="BRIEF",
             )
         if "DELTA_COMPARE" in session.stage_outputs:
@@ -847,6 +855,31 @@ class HubService:
                 "suite_lineage": dict(followup_snapshot.get("suite_lineage", {})),
                 "export_hash": followup_snapshot.get("export_hash"),
             }
+        if str(session.context.get("external_source", "")).strip() == "maxwell":
+            external_maxwell: Dict[str, Any] = {}
+            if baseline_payload:
+                baseline_sim = dict(baseline_payload.get("simulation", {}))
+                external_maxwell["baseline"] = {
+                    "imported_run_id": str(baseline_sim.get("imported_run_id", "")),
+                    "manifest_path": str(baseline_sim.get("manifest_path", "")),
+                    "system": dict(baseline_sim.get("system", {})),
+                }
+            followup_external_artifact_id = str(session.context.get("followup_external_analysis_artifact_id", "")).strip()
+            if followup_external_artifact_id:
+                followup_payload = self._load_hub_payload(
+                    session,
+                    followup_external_artifact_id,
+                    expected_type="hub.bioelectric.baseline_analysis.v1",
+                    stage="BRIEF",
+                )
+                followup_sim = dict(followup_payload.get("simulation", {}))
+                external_maxwell["followup"] = {
+                    "imported_run_id": str(followup_sim.get("imported_run_id", "")),
+                    "manifest_path": str(followup_sim.get("manifest_path", "")),
+                    "system": dict(followup_sim.get("system", {})),
+                }
+            if external_maxwell:
+                suite_lineage["external_maxwell"] = external_maxwell
 
         summary = "Bioelectric simulation session completed" if conformance.get("status") == "passed" else "Bioelectric session in progress"
         return {

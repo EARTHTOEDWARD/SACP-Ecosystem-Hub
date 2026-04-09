@@ -165,6 +165,18 @@ def test_imported_maxwell_session_accepts_followup_manifest_and_completes(client
     assert body["delta_report"]["suite_context"]["source"] == "maxwell"
     assert body["delta_report"]["suite_context"]["baseline_imported_run_id"] == "mx_baseline_001"
     assert body["delta_report"]["suite_context"]["followup_imported_run_id"] == "mx_followup_001"
+    assert body["suite_lineage"]["external_maxwell"]["baseline"]["imported_run_id"] == "mx_baseline_001"
+    assert body["suite_lineage"]["external_maxwell"]["followup"]["imported_run_id"] == "mx_followup_001"
+    assert body["suite_lineage"]["external_maxwell"]["baseline"]["manifest_path"] == str(baseline_manifest)
+    assert body["suite_lineage"]["external_maxwell"]["followup"]["manifest_path"] == str(followup_manifest)
+
+    report_view = client.get(f"/v1/sessions/{session_id}/report/view")
+    assert report_view.status_code == 200
+    assert "External Maxwell Lineage" in report_view.text
+    assert "mx_baseline_001" in report_view.text
+    assert "mx_followup_001" in report_view.text
+    assert str(baseline_manifest) in report_view.text
+    assert str(followup_manifest) in report_view.text
 
 
 def test_followup_maxwell_run_requires_external_import_session(client_and_service, tmp_path: Path):

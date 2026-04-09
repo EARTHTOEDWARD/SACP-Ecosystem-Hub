@@ -68,6 +68,7 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
     delta_metrics = delta_report.get("delta", {})
     lineage = report.get("lineage", {})
     suite_lineage = report.get("suite_lineage", {})
+    external_maxwell = suite_lineage.get("external_maxwell", {}) if isinstance(suite_lineage, dict) else {}
     artifacts = lineage.get("artifact_ids", [])
     summary = report.get("summary", "No summary available")
     conformance = report.get("conformance", {})
@@ -84,6 +85,33 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
     <section class="card">
       <h2>Suite Lineage</h2>
       <pre>{suite_json}</pre>
+    </section>
+    """
+    external_maxwell_html = ""
+    if isinstance(external_maxwell, dict) and external_maxwell:
+        baseline = external_maxwell.get("baseline", {}) or {}
+        followup = external_maxwell.get("followup", {}) or {}
+        external_maxwell_html = f"""
+    <section class="card">
+      <h2>External Maxwell Lineage</h2>
+      <div class="grid-2">
+        <div>
+          <h3>Baseline Import</h3>
+          <div class="meta">
+            <div>Imported run: <code>{escape(str(baseline.get("imported_run_id", "")))}</code></div>
+            <div>Manifest: <code>{escape(str(baseline.get("manifest_path", "")))}</code></div>
+            <div>System: <code>{escape(str((baseline.get("system") or {}).get("name", "")))}</code></div>
+          </div>
+        </div>
+        <div>
+          <h3>Follow-up Import</h3>
+          <div class="meta">
+            <div>Imported run: <code>{escape(str(followup.get("imported_run_id", "")))}</code></div>
+            <div>Manifest: <code>{escape(str(followup.get("manifest_path", "")))}</code></div>
+            <div>System: <code>{escape(str((followup.get("system") or {}).get("name", "")))}</code></div>
+          </div>
+        </div>
+      </div>
     </section>
     """
 
@@ -257,6 +285,7 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
       <pre>{raw_json}</pre>
     </section>
 
+    {external_maxwell_html}
     {suite_lineage_html}
   </main>
 </body>
