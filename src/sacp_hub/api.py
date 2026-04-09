@@ -16,6 +16,7 @@ from sacp_hub.models import (
     IngestResponse,
     IntentCompileRequest,
     IntentCompileResponse,
+    MaxwellFollowupRequest,
     MaxwellImportRequest,
     MaxwellImportResponse,
     SessionCreateRequest,
@@ -688,6 +689,16 @@ def advance(session_id: str) -> AdvanceResponse:
 def followup(session_id: str, req: FollowupRequest) -> AdvanceResponse:
     try:
         return _service.followup(session_id, req)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/sessions/{session_id}/external/maxwell/followup", response_model=AdvanceResponse)
+def followup_maxwell_run(session_id: str, req: MaxwellFollowupRequest) -> AdvanceResponse:
+    try:
+        return _service.followup_maxwell_run(session_id, req)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001

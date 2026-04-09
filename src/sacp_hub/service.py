@@ -19,6 +19,7 @@ from sacp_hub.models import (
     IngestRequest,
     IngestResponse,
     IntentCompileResponse,
+    MaxwellFollowupRequest,
     MaxwellImportResponse,
     SessionCreateResponse,
     SessionRecord,
@@ -124,18 +125,7 @@ class HubService:
         context: Dict[str, Any] | None = None,
     ) -> MaxwellImportResponse:
         resolved_manifest = Path(manifest_path).expanduser().resolve()
-        prepared = self.maxwell_adapter.prepare({"manifest_path": str(resolved_manifest)})
-        result = self.maxwell_adapter.execute(prepared)
-        if not result.ok:
-            raise ValueError(str(result.error_message or "Failed to import Maxwell run"))
-
-        normalized = self.maxwell_adapter.normalize(result)
-        if not normalized:
-            raise ValueError("Maxwell import produced no normalized artifacts")
-
-        route_plan = dict(normalized[0].get("data", {}))
-        summary = dict(route_plan.get("summary", {}))
-        imported_run_id = str(summary.get("run_id") or dict(result.payload.get("manifest", {})).get("run_id") or "unknown")
+        route_plan, summary, imported_run_id = self._normalize_maxwell_manifest(str(resolved_manifest))
         import_prompt = prompt or f"Imported Maxwell Dynamics run {imported_run_id}"
         intent = self._build_maxwell_import_intent(prompt=import_prompt)
 
@@ -152,10 +142,11 @@ class HubService:
 
         self._initialize_session(session, intent=intent, route_plan=route_plan)
         self._mark_stage(session, "BASELINE_ANALYZE")
-        baseline_payload = self._build_maxwell_baseline_payload(
+        baseline_payload = self._build_maxwell_analysis_payload(
             session=session,
             manifest_path=str(resolved_manifest),
             summary=summary,
+            analysis_role="baseline",
         )
         baseline_manifest = self._write_artifact(
             session,
@@ -180,6 +171,51 @@ class HubService:
             route_plan=route_plan,
             baseline_artifact_id=str(baseline_manifest.artifact_id),
         )
+
+    def followup_maxwell_run(self, session_id: str, request: MaxwellFollowupRequest | Dict[str, Any]) -> AdvanceResponse:
+        if isinstance(request, dict):
+            request = MaxwellFollowupRequest.model_validate(request)
+        session = self._get_session_or_raise(session_id)
+        if str(session.context.get("external_source", "")).strip() != "maxwell":
+            raise ValueError("Session is not a Maxwell external-import session")
+        if "EXECUTE_SIM" not in session.completed_stages:
+            raise ValueError("Advance the session before importing a Maxwell follow-up run")
+        if "DELTA_COMPARE" in session.completed_stages:
+            return AdvanceResponse(
+                session_id=session.session_id,
+                state=session.state,
+                produced_artifact_ids=[],
+                stage_history=list(session.stage_history),
+            )
+
+        resolved_manifest = Path(request.manifest_path).expanduser().resolve()
+        _route_plan, summary, imported_run_id = self._normalize_maxwell_manifest(str(resolved_manifest))
+
+        self._mark_stage(session, "FOLLOWUP_INGEST")
+        followup_payload = self._build_maxwell_analysis_payload(
+            session=session,
+            manifest_path=str(resolved_manifest),
+            summary=summary,
+            analysis_role="followup",
+        )
+        followup_payload["simulation"]["metadata"] = dict(request.metadata)
+        followup_payload["suite_context"]["metadata"] = dict(request.metadata)
+        followup_manifest = self._write_artifact(
+            session,
+            "FOLLOWUP_INGEST",
+            "hub.bioelectric.baseline_analysis.v1",
+            followup_payload,
+            set_stage_output=False,
+        )
+        session.context["followup_external_analysis_artifact_id"] = str(followup_manifest.artifact_id)
+        session.context["followup_external_manifest_path"] = str(resolved_manifest)
+        session.context["followup_imported_run_id"] = imported_run_id
+        self._complete_stage(session, "FOLLOWUP_INGEST")
+        session.touch()
+        self._write_session_state(session, last_stage="FOLLOWUP_INGEST")
+        self._commit_manifest(session)
+
+        return self._complete_followup_pipeline(session)
 
     def ingest(self, session_id: str, request: IngestRequest) -> IngestResponse:
         if isinstance(request, dict):
@@ -344,6 +380,9 @@ class HubService:
                 stage_history=list(session.stage_history),
             )
 
+        return self._complete_followup_pipeline(session)
+
+    def _complete_followup_pipeline(self, session: SessionRecord) -> AdvanceResponse:
         produced: List[str] = []
         try:
             if "DELTA_COMPARE" not in session.completed_stages:
@@ -451,24 +490,45 @@ class HubService:
             "tags": ["external_import", "maxwell_v1", "artifact_bus"],
         }
 
+    def _normalize_maxwell_manifest(self, manifest_path: str) -> tuple[Dict[str, Any], Dict[str, Any], str]:
+        prepared = self.maxwell_adapter.prepare({"manifest_path": manifest_path})
+        result = self.maxwell_adapter.execute(prepared)
+        if not result.ok:
+            raise ValueError(str(result.error_message or "Failed to import Maxwell run"))
+        normalized = self.maxwell_adapter.normalize(result)
+        if not normalized:
+            raise ValueError("Maxwell import produced no normalized artifacts")
+        route_plan = dict(normalized[0].get("data", {}))
+        summary = dict(route_plan.get("summary", {}))
+        imported_run_id = str(summary.get("run_id") or dict(result.payload.get("manifest", {})).get("run_id") or "unknown")
+        return route_plan, summary, imported_run_id
+
     @staticmethod
-    def _build_maxwell_baseline_payload(
+    def _build_maxwell_summary_metrics(summary: Dict[str, Any]) -> Dict[str, float]:
+        atlas = dict(summary.get("atlas", {}))
+        boundaries = dict(summary.get("boundaries", {}))
+        gate = dict(summary.get("gate", {}))
+        return {
+            "mean_signal": float(atlas.get("series_count", 0.0)),
+            "variance": float(atlas.get("mu_grid_count", 0.0)),
+            "instability": float(gate.get("rollout_count", 0.0)) + float(boundaries.get("temporal_gauge_certificate_count", 0.0)),
+            "energy_gradient_proxy": float(summary.get("artifact_count", 0.0)) + float(boundaries.get("count", 0.0)),
+        }
+
+    def _build_maxwell_analysis_payload(
+        self,
         *,
         session: SessionRecord,
         manifest_path: str,
         summary: Dict[str, Any],
+        analysis_role: str,
     ) -> Dict[str, Any]:
         atlas = dict(summary.get("atlas", {}))
         boundaries = dict(summary.get("boundaries", {}))
         gate = dict(summary.get("gate", {}))
         panels = dict(summary.get("panels", {}))
         temporal_gauge = dict(summary.get("temporal_gauge", {}))
-        metrics = {
-            "mean_signal": float(atlas.get("series_count", 0.0)),
-            "variance": float(atlas.get("mu_grid_count", 0.0)),
-            "instability": float(gate.get("rollout_count", 0.0)) + float(boundaries.get("temporal_gauge_certificate_count", 0.0)),
-            "energy_gradient_proxy": float(summary.get("artifact_count", 0.0)) + float(boundaries.get("count", 0.0)),
-        }
+        metrics = self._build_maxwell_summary_metrics(summary)
         return {
             "session_id": session.session_id,
             "window_ids": [],
@@ -476,6 +536,7 @@ class HubService:
             "simulation": {
                 "source": "maxwell",
                 "import_kind": "run_manifest",
+                "analysis_role": analysis_role,
                 "manifest_path": manifest_path,
                 "imported_run_id": str(summary.get("run_id", "unknown")),
                 "system": dict(summary.get("system", {})),
@@ -680,6 +741,35 @@ class HubService:
                     "suite_lineage": dict(snapshot.get("suite_lineage", {})),
                 },
             )
+            return delta_payload
+
+        external_followup_artifact_id = str(session.context.get("followup_external_analysis_artifact_id", "")).strip()
+        if external_followup_artifact_id:
+            followup_payload = self._load_hub_payload(
+                session,
+                external_followup_artifact_id,
+                expected_type="hub.bioelectric.baseline_analysis.v1",
+                stage="DELTA_COMPARE",
+            )
+            prepared = self.sacp_adapter.prepare(
+                {
+                    "action": "delta_compare",
+                    "session_id": session.session_id,
+                    "baseline_metrics": baseline_payload["metrics"],
+                    "followup_metrics": followup_payload["metrics"],
+                }
+            )
+            result = self.sacp_adapter.execute(prepared)
+            delta_payload = self._require_ok("DELTA_COMPARE", result)
+            delta_payload["suite_context"] = {
+                "source": "maxwell",
+                "baseline_imported_run_id": str(baseline_payload.get("simulation", {}).get("imported_run_id", "")),
+                "followup_imported_run_id": str(followup_payload.get("simulation", {}).get("imported_run_id", "")),
+                "baseline_manifest_path": str(baseline_payload.get("simulation", {}).get("manifest_path", "")),
+                "followup_manifest_path": str(followup_payload.get("simulation", {}).get("manifest_path", "")),
+                "baseline_external_summary": dict(baseline_payload.get("suite_context", {}).get("external_summary", {})),
+                "followup_external_summary": dict(followup_payload.get("suite_context", {}).get("external_summary", {})),
+            }
             return delta_payload
 
         followup_windows = [self._load_stream_window(session, artifact_id) for artifact_id in session.followup_window_ids]

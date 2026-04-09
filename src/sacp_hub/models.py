@@ -69,6 +69,11 @@ class MaxwellImportResponse(BaseModel):
     baseline_artifact_id: str
 
 
+class MaxwellFollowupRequest(BaseModel):
+    manifest_path: str = Field(min_length=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class SuiteBridgeRefV1(BaseModel):
     provider: Literal["sacp_suite"] = "sacp_suite"
     bridge_kind: Literal["panel_run", "verification_run"]
