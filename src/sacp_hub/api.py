@@ -16,6 +16,8 @@ from sacp_hub.models import (
     IngestResponse,
     IntentCompileRequest,
     IntentCompileResponse,
+    MaxwellImportRequest,
+    MaxwellImportResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionView,
@@ -650,6 +652,18 @@ def compile_intent(req: IntentCompileRequest) -> IntentCompileResponse:
 @app.post("/v1/sessions", response_model=SessionCreateResponse)
 def create_session(req: SessionCreateRequest) -> SessionCreateResponse:
     return _service.create_session(prompt=req.prompt, context=req.context)
+
+
+@app.post("/v1/external/maxwell/import", response_model=MaxwellImportResponse)
+def import_maxwell_run(req: MaxwellImportRequest) -> MaxwellImportResponse:
+    try:
+        return _service.import_maxwell_run(
+            manifest_path=req.manifest_path,
+            prompt=req.prompt,
+            context=req.context,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/v1/sessions/{session_id}/ingest", response_model=IngestResponse)

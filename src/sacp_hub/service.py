@@ -19,6 +19,7 @@ from sacp_hub.models import (
     IngestRequest,
     IngestResponse,
     IntentCompileResponse,
+    MaxwellImportResponse,
     SessionCreateResponse,
     SessionRecord,
     SessionView,
@@ -101,10 +102,7 @@ class HubService:
         run_id = self.runstore.create_run()
         session = SessionRecord(run_id=run_id, prompt=prompt, context=context or {})
 
-        self._mark_stage(session, "INTAKE")
-        self._write_artifact(session, "INTAKE", "hub.intent.v1", compile_out.intent)
-        self._write_artifact(session, "INTAKE", "hub.route_plan.v1", compile_out.route_plan)
-        self._complete_stage(session, "INTAKE")
+        self._initialize_session(session, intent=compile_out.intent, route_plan=compile_out.route_plan)
         self._write_session_state(session, last_stage="INTAKE")
 
         self.sessions[session.session_id] = session
@@ -116,6 +114,71 @@ class HubService:
             state=session.state,
             intent=compile_out.intent,
             route_plan=compile_out.route_plan,
+        )
+
+    def import_maxwell_run(
+        self,
+        *,
+        manifest_path: str,
+        prompt: str | None = None,
+        context: Dict[str, Any] | None = None,
+    ) -> MaxwellImportResponse:
+        resolved_manifest = Path(manifest_path).expanduser().resolve()
+        prepared = self.maxwell_adapter.prepare({"manifest_path": str(resolved_manifest)})
+        result = self.maxwell_adapter.execute(prepared)
+        if not result.ok:
+            raise ValueError(str(result.error_message or "Failed to import Maxwell run"))
+
+        normalized = self.maxwell_adapter.normalize(result)
+        if not normalized:
+            raise ValueError("Maxwell import produced no normalized artifacts")
+
+        route_plan = dict(normalized[0].get("data", {}))
+        summary = dict(route_plan.get("summary", {}))
+        imported_run_id = str(summary.get("run_id") or dict(result.payload.get("manifest", {})).get("run_id") or "unknown")
+        import_prompt = prompt or f"Imported Maxwell Dynamics run {imported_run_id}"
+        intent = self._build_maxwell_import_intent(prompt=import_prompt)
+
+        session_context = dict(context or {})
+        session_context.update(
+            {
+                "external_source": "maxwell",
+                "imported_run_id": imported_run_id,
+                "manifest_path": str(resolved_manifest),
+            }
+        )
+        run_id = self.runstore.create_run()
+        session = SessionRecord(run_id=run_id, prompt=import_prompt, context=session_context)
+
+        self._initialize_session(session, intent=intent, route_plan=route_plan)
+        self._mark_stage(session, "BASELINE_ANALYZE")
+        baseline_payload = self._build_maxwell_baseline_payload(
+            session=session,
+            manifest_path=str(resolved_manifest),
+            summary=summary,
+        )
+        baseline_manifest = self._write_artifact(
+            session,
+            "BASELINE_ANALYZE",
+            "hub.bioelectric.baseline_analysis.v1",
+            baseline_payload,
+        )
+        self._complete_stage(session, "BASELINE_ANALYZE")
+        session.state = "running"
+        session.touch()
+        self._write_session_state(session, last_stage="BASELINE_ANALYZE")
+
+        self.sessions[session.session_id] = session
+        self._commit_manifest(session)
+
+        return MaxwellImportResponse(
+            session_id=session.session_id,
+            run_id=session.run_id,
+            imported_run_id=imported_run_id,
+            state=session.state,
+            intent=intent,
+            route_plan=route_plan,
+            baseline_artifact_id=str(baseline_manifest.artifact_id),
         )
 
     def ingest(self, session_id: str, request: IngestRequest) -> IngestResponse:
@@ -370,6 +433,68 @@ class HubService:
         return self._report_for_run_id(run_id)
 
     # ----------------------------- Internal ---------------------------------
+
+    def _initialize_session(self, session: SessionRecord, *, intent: Dict[str, Any], route_plan: Dict[str, Any]) -> None:
+        self._mark_stage(session, "INTAKE")
+        self._write_artifact(session, "INTAKE", "hub.intent.v1", intent)
+        self._write_artifact(session, "INTAKE", "hub.route_plan.v1", route_plan)
+        self._complete_stage(session, "INTAKE")
+
+    @staticmethod
+    def _build_maxwell_import_intent(*, prompt: str) -> Dict[str, Any]:
+        return {
+            "prompt": prompt,
+            "domain": "research",
+            "objective": "external Maxwell baseline import",
+            "mode": "batch",
+            "simulation_only": True,
+            "tags": ["external_import", "maxwell_v1", "artifact_bus"],
+        }
+
+    @staticmethod
+    def _build_maxwell_baseline_payload(
+        *,
+        session: SessionRecord,
+        manifest_path: str,
+        summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        atlas = dict(summary.get("atlas", {}))
+        boundaries = dict(summary.get("boundaries", {}))
+        gate = dict(summary.get("gate", {}))
+        panels = dict(summary.get("panels", {}))
+        temporal_gauge = dict(summary.get("temporal_gauge", {}))
+        metrics = {
+            "mean_signal": float(atlas.get("series_count", 0.0)),
+            "variance": float(atlas.get("mu_grid_count", 0.0)),
+            "instability": float(gate.get("rollout_count", 0.0)) + float(boundaries.get("temporal_gauge_certificate_count", 0.0)),
+            "energy_gradient_proxy": float(summary.get("artifact_count", 0.0)) + float(boundaries.get("count", 0.0)),
+        }
+        return {
+            "session_id": session.session_id,
+            "window_ids": [],
+            "metrics": metrics,
+            "simulation": {
+                "source": "maxwell",
+                "import_kind": "run_manifest",
+                "manifest_path": manifest_path,
+                "imported_run_id": str(summary.get("run_id", "unknown")),
+                "system": dict(summary.get("system", {})),
+                "artifact_count": int(summary.get("artifact_count", 0)),
+                "available_files": list(summary.get("available_files", [])),
+                "atlas": atlas,
+                "boundaries": boundaries,
+                "gate": gate,
+                "temporal_gauge": temporal_gauge,
+                "panels": panels,
+                "extension_artifacts": dict(summary.get("extension_artifacts", {})),
+            },
+            "suite_context": {
+                "source": "maxwell",
+                "manifest_path": manifest_path,
+                "route_plan_version": "external",
+                "external_summary": summary,
+            },
+        }
 
     def _run_baseline_analyze(self, session: SessionRecord) -> Dict[str, Any]:
         snapshot = self._load_suite_bridge_snapshot(session, "baseline")
