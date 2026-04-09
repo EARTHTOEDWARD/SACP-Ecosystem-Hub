@@ -53,6 +53,27 @@ class SessionCreateResponse(BaseModel):
     route_plan: Dict[str, Any]
 
 
+class MaxwellImportRequest(BaseModel):
+    manifest_path: str = Field(min_length=1)
+    prompt: Optional[str] = None
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MaxwellImportResponse(BaseModel):
+    session_id: str
+    run_id: str
+    imported_run_id: str
+    state: SessionStateLiteral
+    intent: Dict[str, Any]
+    route_plan: Dict[str, Any]
+    baseline_artifact_id: str
+
+
+class MaxwellFollowupRequest(BaseModel):
+    manifest_path: str = Field(min_length=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class SuiteBridgeRefV1(BaseModel):
     provider: Literal["sacp_suite"] = "sacp_suite"
     bridge_kind: Literal["panel_run", "verification_run"]

@@ -216,3 +216,31 @@ def test_create_suite_intervention_request_from_panel_run_posts_expected_payload
     assert seen["json"]["panel_run_id"] == "suite_panel_01"
     assert seen["json"]["selected_candidate_id"] == "cand_bridge_01"
     assert seen["json"]["request_metadata"]["source"] == "hub_execute_sim"
+
+
+def test_create_suite_execution_from_intervention_request_posts_expected_payload(monkeypatch: pytest.MonkeyPatch):
+    seen: dict = {}
+
+    def _post(url: str, json: dict, timeout: float):
+        seen["url"] = url
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _DummyResponse(
+            {
+                "run_id": "suite_execution_01",
+                "execution_ref": {
+                    "artifact_id": "sha256:" + "8" * 64,
+                    "artifact_type": "sacp.bcp.intervention_execution.v1",
+                },
+                "executed_panel_run": {"run_id": "suite_panel_exec_01"},
+            }
+        )
+
+    adapter = SACPAPIAdapter(base_url="http://suite.test")
+    monkeypatch.setattr("sacp_hub.adapters.sacp_api.requests.post", _post)
+
+    body = adapter.create_suite_execution_from_intervention_request(request_run_id="suite_request_01")
+
+    assert body["run_id"] == "suite_execution_01"
+    assert seen["url"] == "http://suite.test/api/v1/bcp/execution-runs/from-intervention-request"
+    assert seen["json"]["request_run_id"] == "suite_request_01"

@@ -31,6 +31,7 @@ class SACPAPIAdapter(Adapter):
                 "bcp_panel_export": f"{self.base_url}/api/v1/bcp/hub-exports/panel-runs/{{run_id}}",
                 "bcp_verification_export": f"{self.base_url}/api/v1/bcp/hub-exports/verification-runs/{{run_id}}",
                 "bcp_intervention_request_from_panel_run": f"{self.base_url}/api/v1/bcp/intervention-requests/from-panel-run",
+                "bcp_execution_from_intervention_request": f"{self.base_url}/api/v1/bcp/execution-runs/from-intervention-request",
                 "bcp_verification_from_panel_run": f"{self.base_url}/api/v1/bcp/verification-runs/from-panel-run",
             },
             produced_artifact_types=[
@@ -324,4 +325,27 @@ class SACPAPIAdapter(Adapter):
         request_ref = dict(body.get("request_ref") or {})
         if not created_run_id or not request_ref.get("artifact_id"):
             raise ValueError("Suite intervention request response is missing run_id or request_ref")
+        return body
+
+    def create_suite_execution_from_intervention_request(
+        self,
+        *,
+        request_run_id: str,
+        suite_base_url: str | None = None,
+    ) -> Dict[str, Any]:
+        run_id = str(request_run_id).strip()
+        if not run_id:
+            raise ValueError("request_run_id is required")
+        raw_base = str(suite_base_url or self.base_url).strip().rstrip("/")
+        base_url = raw_base or self.base_url.rstrip("/")
+        url = f"{base_url}/api/v1/bcp/execution-runs/from-intervention-request"
+        payload = {"request_run_id": run_id}
+        resp = requests.post(url, json=payload, timeout=self.timeout_seconds)
+        resp.raise_for_status()
+        body = resp.json()
+        created_run_id = str(body.get("run_id", "")).strip()
+        execution_ref = dict(body.get("execution_ref") or {})
+        executed_panel_run = dict(body.get("executed_panel_run") or {})
+        if not created_run_id or not execution_ref.get("artifact_id") or not executed_panel_run.get("run_id"):
+            raise ValueError("Suite execution response is missing run_id, execution_ref, or executed_panel_run")
         return body

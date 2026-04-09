@@ -16,6 +16,9 @@ from sacp_hub.models import (
     IngestResponse,
     IntentCompileRequest,
     IntentCompileResponse,
+    MaxwellFollowupRequest,
+    MaxwellImportRequest,
+    MaxwellImportResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionView,
@@ -65,10 +68,13 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
     delta_metrics = delta_report.get("delta", {})
     lineage = report.get("lineage", {})
     suite_lineage = report.get("suite_lineage", {})
+    external_maxwell = suite_lineage.get("external_maxwell", {}) if isinstance(suite_lineage, dict) else {}
     artifacts = lineage.get("artifact_ids", [])
     summary = report.get("summary", "No summary available")
     conformance = report.get("conformance", {})
     suite_execution_request = intervention.get("suite_execution_request", {}) or {}
+    suite_execution_run = intervention.get("suite_execution_run", {}) or {}
+    observed_effect = intervention.get("observed_effect", {}) or {}
     raw_json = escape(json.dumps(report, indent=2, sort_keys=True))
 
     artifact_lines = "".join(f"<li><code>{escape(str(artifact_id))}</code></li>" for artifact_id in artifacts)
@@ -79,6 +85,33 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
     <section class="card">
       <h2>Suite Lineage</h2>
       <pre>{suite_json}</pre>
+    </section>
+    """
+    external_maxwell_html = ""
+    if isinstance(external_maxwell, dict) and external_maxwell:
+        baseline = external_maxwell.get("baseline", {}) or {}
+        followup = external_maxwell.get("followup", {}) or {}
+        external_maxwell_html = f"""
+    <section class="card">
+      <h2>External Maxwell Lineage</h2>
+      <div class="grid-2">
+        <div>
+          <h3>Baseline Import</h3>
+          <div class="meta">
+            <div>Imported run: <code>{escape(str(baseline.get("imported_run_id", "")))}</code></div>
+            <div>Manifest: <code>{escape(str(baseline.get("manifest_path", "")))}</code></div>
+            <div>System: <code>{escape(str((baseline.get("system") or {}).get("name", "")))}</code></div>
+          </div>
+        </div>
+        <div>
+          <h3>Follow-up Import</h3>
+          <div class="meta">
+            <div>Imported run: <code>{escape(str(followup.get("imported_run_id", "")))}</code></div>
+            <div>Manifest: <code>{escape(str(followup.get("manifest_path", "")))}</code></div>
+            <div>System: <code>{escape(str((followup.get("system") or {}).get("name", "")))}</code></div>
+          </div>
+        </div>
+      </div>
     </section>
     """
 
@@ -225,6 +258,10 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
           <div>Predicted instability reduction: {_format_metric(intervention.get("predicted_effect", {}).get("instability_reduction"))}</div>
           <div>Suite execution request run: <code>{escape(str(suite_execution_request.get("request_run_id", "")))}</code></div>
           <div>Suite execution request artifact: <code>{escape(str((suite_execution_request.get("request_ref") or {}).get("artifact_id", "")))}</code></div>
+          <div>Suite execution run: <code>{escape(str(suite_execution_run.get("execution_run_id", "")))}</code></div>
+          <div>Suite execution artifact: <code>{escape(str((suite_execution_run.get("execution_ref") or {}).get("artifact_id", "")))}</code></div>
+          <div>Executed panel run: <code>{escape(str((suite_execution_run.get("executed_panel_run") or {}).get("run_id", "")))}</code></div>
+          <div>Observed executed regime: <code>{escape(str(observed_effect.get("executed_regime", "")))}</code></div>
           <div>Knocked out of saddle: <strong>{escape(str(delta_report.get("knocked_out_of_saddle", "")))}</strong></div>
         </div>
       </div>
@@ -248,6 +285,7 @@ def _render_report_html(report: dict[str, Any], heading: str) -> str:
       <pre>{raw_json}</pre>
     </section>
 
+    {external_maxwell_html}
     {suite_lineage_html}
   </main>
 </body>
@@ -646,6 +684,18 @@ def create_session(req: SessionCreateRequest) -> SessionCreateResponse:
     return _service.create_session(prompt=req.prompt, context=req.context)
 
 
+@app.post("/v1/external/maxwell/import", response_model=MaxwellImportResponse)
+def import_maxwell_run(req: MaxwellImportRequest) -> MaxwellImportResponse:
+    try:
+        return _service.import_maxwell_run(
+            manifest_path=req.manifest_path,
+            prompt=req.prompt,
+            context=req.context,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/v1/sessions/{session_id}/ingest", response_model=IngestResponse)
 def ingest(session_id: str, req: IngestRequest) -> IngestResponse:
     try:
@@ -668,6 +718,16 @@ def advance(session_id: str) -> AdvanceResponse:
 def followup(session_id: str, req: FollowupRequest) -> AdvanceResponse:
     try:
         return _service.followup(session_id, req)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/v1/sessions/{session_id}/external/maxwell/followup", response_model=AdvanceResponse)
+def followup_maxwell_run(session_id: str, req: MaxwellFollowupRequest) -> AdvanceResponse:
+    try:
+        return _service.followup_maxwell_run(session_id, req)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
